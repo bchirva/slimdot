@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+
+_print_help() {
+    echo "Usage: slimdot [OPTIONS] [configs|rules|actions]"
+    echo "all               Symlink all files, directories; execute all hooks and rules"
+    echo "clear             Remove all symlink to files and directories from $HOME"
+    echo "-d|--dry-run      Only print actions to stdout, without executing them"
+    echo "-h|--help         Show this help message"
+    echo "-v|--verbose      Verbose output"
+}
+
+_entry_name() {
+    echo "$1" | sed -E 's/^[[:space:]]+//' | awk '{print $1}'
+}
+
+_entry_value() {
+   echo "$1" | awk '{ $1=""; sub(/^ /, ""); print }'
+}
+
+_destination_symlink_name() {
+    local -r dotfile_source=$1
+    symlink=
+
+    if [ -f "${DOTFILES_DIR}/${dotfile_source}" ]; then 
+        symlink="${HOME}/.${dotfile_source}"
+    elif [ -d "${DOTFILES_DIR}/${dotfile_source}" ]; then 
+        symlink="${CONFIG_HOME_DIR}/${dotfile_source}"
+    fi 
+
+    for override in "${OVERRIDE_LIST[@]}"; do 
+        if [[ $(echo "${override}" | _entry_name ) == "${dotfile_source}" ]]; then 
+            symlink="$(echo "${override}" | awk '{ $1=""; sub(/^ /, ""); print }')"
+        fi 
+    done 
+
+    echo "$symlink"
+}
+
+_get_from_list() {
+    local -r entry="$1"
+    case $2 in 
+        rules) local -r list=("${RULES_LIST[@]}") ;;
+        actions) local -r list=("${ACTIONS_LIST[@]}") ;;
+        *) return 1 ;;
+    esac 
+
+    for item in "${list[@]}"; do 
+        if [[ $(_entry_name "${item}") == "${entry}" ]]; then 
+            echo "${item}"
+            return 0
+        fi
+    done 
+    return 1
+}
+
+_list_unique() {
+    case $1 in 
+        dotfiles) 
+            local -r list=("${DOTFILES_LIST[@]}")
+            DOTFILES_LIST=()
+            ;;
+        actions) 
+            local -r list=("${ACTIONS_LIST[@]}") 
+            ACTIONS_LIST=()
+            ;;
+        *) return 1 ;;
+    esac 
+
+    tmplist=$(mktemp)
+
+    for item in "${list[@]}"; do 
+        echo "${item}"
+    done | sort -u > "${tmplist}"
+
+    while IFS= read -r line; do 
+        case $1 in 
+            dotfiles) DOTFILES_LIST+=("${line}") ;;
+            actions) ACTIONS_LIST+=("${line}") ;;
+        esac
+    done < "${tmplist}"
+
+    rm -f "${tmplist}"
+}
+
+_is_dotfile() {
+    local -r entry="$1"
+    for dotfile in "${DOTFILES_LIST[@]}"; do 
+        if [[ $(basename "${dotfile}") == "${entry}" ]]; then 
+            return 0
+        fi 
+    done 
+    return 1
+}
+
+_clear() {
+    for dotfile in "${DOTFILES_LIST[@]}"; do 
+        symlink="$(_destination_symlink_name "${dotfile}")"
+
+        if [ -L "${symlink}" ]; then 
+            if [[ ! "${DRY_RUN}" ]]; then 
+                rm "${symlink}"
+            fi 
+
+            if [[ "${VERBOSE_STDOUT}" || "${DRY_RUN}" ]]; then 
+                echo "Remove symlink ${symlink}"
+            fi 
+        fi 
+    done 
+}
+
+# Declare internal parameters
+# ---------------------------
+DOTFILES_DIR="${PWD}"
+CONFIG_HOME_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+DRY_RUN=
+VERBOSE_STDOUT=
+SELECTED_ENTRIES=()
+
+# Parse command-line arguments
+# ----------------------------
+while (( $# > 0 )); do
+    case "$1" in 
+        -d|--dotfile-dir)
+            DOTFILES_DIR="$2"
+            shift 
+        ;;
+        -n|--dry-run) 
+            DRY_RUN=1 
+        ;;
+        -h|--help)
+            _print_help
+            exit
+        ;;
+        -v|--verbose)
+            VERBOSE_STDOUT=1
+        ;;
+        *)
+            SELECTED_ENTRIES+=("$1")
+        ;;
+    esac 
+    shift 
+done 
+
+# Source dotfile repo config file
+# -------------------------------
+if [[ -f "${DOTFILES_DIR}/.slimdotrc" ]]; then 
+    . "${DOTFILES_DIR}/.slimdotrc"
+fi 
+
+# Setup variables
+# ---------------
+readonly SLIMDOT_DEFAULT_IGNORE=(
+    .git 
+    .gitignore 
+    .gitmodules 
+    .github 
+    .gitlab
+    README 
+    LICENSE 
+    .slimdotrc
+    )
+readonly IGNORES_LIST=("${SLIMDOT_DEFAULT_IGNORE[@]}" "${SLIMDOT_IGNORE[@]}")
+
+DOTFILES_LIST=()
+for dotfile in "${DOTFILES_DIR}"/{*,.*}; do 
+    dotfile_name=$(basename "${dotfile}")
+    is_ignored=
+    for ignore in "${IGNORES_LIST[@]}"; do 
+        if [[ "${ignore}" == "${dotfile_name}" ]]; then 
+            is_ignored=1
+            break 
+        fi 
+    done 
+    if [[ ${is_ignored} ]]; then 
+        continue 
+    fi 
+    DOTFILES_LIST+=("${dotfile_name}")
+done 
+
+readonly OVERRIDE_LIST=("${SLIMDOT_OVERRIDE[@]}")
+readonly SLIMDOT_DEFAULT_ACTIONS=("clear _clear")
+ACTIONS_LIST=("${SLIMDOT_DEFAULT_ACTIONS[@]}" "${SLIMDOT_ACTIONS[@]}")
+readonly SLIMDOT_DEFAULT_RULES=("all ${DOTFILES_LIST[*]} ${SLIMDOT_ACTIONS[*]}")
+RULES_LIST=("${SLIMDOT_DEFAULT_RULES[@]}" "${SLIMDOT_RULES[@]}")
+
+# Make lists of entries to symlink
+# --------------------------------
+DOTFILES_TO_SYMLINK=()
+RULES_TO_EXECUTE=()
+ACTIONS_TO_EXECUTE=()
+
+for entry in "${SELECTED_ENTRIES[@]}"; do 
+    # Check if entry in IGNORED list
+    is_ignore=
+    for ignore in "${IGNORES_LIST[@]}"; do
+        if [[ "${ignore}" == "${entry}" ]]; then 
+            is_ignore=1
+            break
+        fi 
+    done 
+    [[ "${is_ignore}" ]] && continue 
+
+    # Resolve entry type
+    rule=$(_get_from_list "${entry}" rules)
+    if [[ "${rule}" ]]; then 
+        RULES_TO_EXECUTE+=("${rule}")
+        continue
+    fi 
+
+    action=$(_get_from_list "${entry}" actions)
+    if [[ "${action}" ]]; then 
+        ACTIONS_TO_EXECUTE+=("${entry}")
+        continue
+    fi 
+
+    if _is_dotfile "${entry}"; then 
+        DOTFILES_TO_SYMLINK+=("${entry}")
+        continue
+    fi 
+done 
+
+# Expand rules
+# ------------
+i=0
+while (( i < ${#RULES_TO_EXECUTE[@]} )); do
+    read -ra entries <<< "$(_entry_value "${RULES_TO_EXECUTE[${i}]}")"
+
+    for entry in "${entries[@]}"; do 
+
+        rule=$(_get_from_list "${entry}" rules)
+        if [[ -n "${rule}" && "$(_entry_name "${rule}")" != "${entry}" ]]; then 
+            RULES_TO_EXECUTE+=("${rule}")
+            continue 
+        fi
+
+        action=$(_get_from_list "${entry}" actions)
+        if [[ "${action}" ]]; then 
+            ACTIONS_TO_EXECUTE+=("${action}")
+            continue 
+        fi 
+
+        if _is_dotfile "${entry}"; then 
+            DOTFILES_TO_SYMLINK+=("${entry}")
+            continue 
+        fi 
+    done 
+    (( i++ ))
+done 
+
+_list_unique dotfiles
+_list_unique actions
+
+# Create symlinks
+# ---------------
+for dotfile in "${DOTFILES_TO_SYMLINK[@]}"; do 
+    symlink="$(_destination_symlink_name "${dotfile}")"
+    backup=""
+
+    if [ -e "${symlink}" ]; then 
+        backup="${symlink}.backup"
+        i=1
+        while [ -e "${backup}" ]; do  
+            ((i++))
+            backup="${symlink}.backup.$i"
+        done 
+    fi 
+
+    if [[ ! "${DRY_RUN}" ]]; then 
+        if [[ -n "${backup}" ]]; then 
+            mv "${symlink}" "${backup}"
+        fi
+        ln -sf "${dotfile}" "${symlink}"
+    fi 
+    if [[ "${VERBOSE_STDOUT}" || "${DRY_RUN}" ]]; then 
+        if [[ -n "$backup" ]]; then 
+            echo "Make backup ${symlink} ${backup}"
+        fi
+        echo "Create symlink for ${dotfile} in ${symlink}"
+    fi 
+done 
+
+# Execute actions
+# ---------------
+for action in "${ACTIONS_TO_EXECUTE[@]}"; do 
+    cmd=$(_entry_value "${action}")
+
+    if [[ ! "$DRY_RUN" ]]; then 
+        $cmd
+    fi 
+    if [[ "${VERBOSE_STDOUT}" || "${DRY_RUN}" ]]; then 
+        echo -e "Execute action \"${action}\":\n\t${cmd}"
+    fi 
+done 
+
+
