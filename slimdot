@@ -17,13 +17,47 @@
 # with this program; if not, see <https://www.gnu.org/licenses/>.
 
 _print_help() {
-    echo "Usage: slimdot [OPTIONS] [configs|rules|actions]"
-    echo "all               Symlink all files, directories; execute all hooks and rules"
-    echo "clear             Remove all symlink to files and directories from $HOME"
-    echo "-d|--dry-run      Only print actions to stdout, without executing them"
-    echo "-h|--help         Show this help message"
-    echo "-v|--verbose      Verbose output"
+    cat <<EOF
+Usage: slimdot [OPTIONS] [ENTRY1 ENTRY2 ...]
+
+Slimdot — a simple tool for managing symlinks to dotfiles.
+
+Built-in entries:
+  all                Create symlinks for all dotfiles, execute all actions [default]
+  clear              Remove all created symlinks from your home directory
+
+Options:
+  -d, --dotfile-dir DIR   Set the dotfiles directory (default: current working dir)
+  -n, --dry-run           Only show what would be done, without executing
+  -v, --verbose           Print detailed output of operations
+  -h, --help              Show this help message and exit
+  --version               Print version
+
+Argument types:
+  dotfiles          Names of dotfiles to symlink (files and/or directories in the repository)
+  rules             Named groups of dotfiles and/or actions (defined in config)
+  actions           Named shell commands/scripts/functions to execute (defined in config)
+
+Configuration:
+  Slimdot reads its configuration from a .slimdotrc file in the dotfiles directory.
+  The following variables are supported:
+    SLIMDOT_IGNORE     — list of files and/or directories to ignore
+    SLIMDOT_OVERRIDE   — overrides for symlink destinations
+    SLIMDOT_RULES      — custom rules (name + list of dotfiles/actions)
+    SLIMDOT_ACTIONS    — custom actions (name + shell command/function/script)
+
+Examples:
+  slimdot all
+      symlink all dotfiles and run all actions
+  slimdot zshrc
+      symlink .zshrc into \$HOME
+  slimdot clear -n
+      show which symlinks would be removed (dry-run)
+
+EOF
 }
+
+readonly VERSION="0.0.0"
 
 _entry_name() {
     echo "$1" | sed -E 's/^[[:space:]]+//' | awk '{print $1}'
@@ -145,10 +179,14 @@ while (( $# > 0 )); do
         ;;
         -h|--help)
             _print_help
-            exit
+            exit 0
         ;;
         -v|--verbose)
             VERBOSE_STDOUT=1
+        ;;
+        --version) 
+            echo "slimdot ${VERSION}"
+            exit 0
         ;;
         *)
             SELECTED_ENTRIES+=("$1")
