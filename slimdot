@@ -146,7 +146,7 @@ _clear() {
     for dotfile in "${DOTFILES_LIST[@]}"; do 
         symlink="$(_destination_symlink_name "${dotfile}")"
 
-        if [ -L "${symlink}" ]; then 
+        if [ -L "${symlink}" ] && [ "$(readlink "${symlink}")" == "${DOTFILES_DIR}/${dotfile}" ]; then 
             if [[ ! "${DRY_RUN}" ]]; then 
                 rm "${symlink}"
             fi 
@@ -194,6 +194,10 @@ while (( $# > 0 )); do
     esac 
     shift 
 done 
+
+if (( ${#SELECTED_ENTRIES[@]} == 0 )); then 
+    SELECTED_ENTRIES+=(all)
+fi
 
 # Source dotfile repo config file
 # -------------------------------
@@ -245,16 +249,6 @@ RULES_TO_EXECUTE=()
 ACTIONS_TO_EXECUTE=()
 
 for entry in "${SELECTED_ENTRIES[@]}"; do 
-    # Check if entry in IGNORED list
-    is_ignore=
-    for ignore in "${IGNORES_LIST[@]}"; do
-        if [[ "${ignore}" == "${entry}" ]]; then 
-            is_ignore=1
-            break
-        fi 
-    done 
-    [[ "${is_ignore}" ]] && continue 
-
     # Resolve entry type
     rule=$(_get_from_list "${entry}" rules)
     if [[ "${rule}" ]]; then 
@@ -264,14 +258,26 @@ for entry in "${SELECTED_ENTRIES[@]}"; do
 
     action=$(_get_from_list "${entry}" actions)
     if [[ "${action}" ]]; then 
-        ACTIONS_TO_EXECUTE+=("${entry}")
+        ACTIONS_TO_EXECUTE+=("${action}")
         continue
     fi 
 
+    # Check if dotfile in IGNORED list
     if _is_dotfile "${entry}"; then 
-        DOTFILES_TO_SYMLINK+=("${entry}")
+        is_ignore=
+        for ignore in "${IGNORES_LIST[@]}"; do
+            if [[ "${ignore}" == "${entry}" ]]; then 
+                is_ignore=1
+                break
+            fi 
+        done 
+        if [[ ! "${is_ignore}" ]]; then  
+            DOTFILES_TO_SYMLINK+=("${entry}")
+        fi
         continue
-    fi 
+    fi
+
+    echo "WARNING: \"${entry}\" entry is not recognized. It's neither dotfile, rule or action."
 done 
 
 # Expand rules
@@ -309,8 +315,12 @@ _list_unique actions
 # ---------------
 for dotfile in "${DOTFILES_TO_SYMLINK[@]}"; do 
     symlink="$(_destination_symlink_name "${dotfile}")"
-    backup=""
 
+    if [ -L "${symlink}" ] && [ "$(readlink "${symlink}")" == "${DOTFILES_DIR}/${dotfile}" ]; then
+        continue 
+    fi
+
+    backup=""
     if [ -e "${symlink}" ]; then 
         backup="${symlink}.backup"
         i=1
@@ -324,7 +334,7 @@ for dotfile in "${DOTFILES_TO_SYMLINK[@]}"; do
         if [[ -n "${backup}" ]]; then 
             mv "${symlink}" "${backup}"
         fi
-        ln -sf "${dotfile}" "${symlink}"
+        ln -sf "${DOTFILES_DIR}/${dotfile}" "${symlink}"
     fi 
     if [[ "${VERBOSE_STDOUT}" || "${DRY_RUN}" ]]; then 
         if [[ -n "$backup" ]]; then 
@@ -337,13 +347,14 @@ done
 # Execute actions
 # ---------------
 for action in "${ACTIONS_TO_EXECUTE[@]}"; do 
+    action_name="$(_entry_name "${action}")"
     cmd=$(_entry_value "${action}")
 
-    if [[ ! "$DRY_RUN" ]]; then 
-        $cmd
-    fi 
     if [[ "${VERBOSE_STDOUT}" || "${DRY_RUN}" ]]; then 
-        echo -e "Execute action \"${action}\":\n\t${cmd}"
+        echo -e "Execute action \"${action_name}\": ${cmd}"
+    fi 
+    if [[ ! "$DRY_RUN" || "${action_name}" == "clear" ]]; then 
+        $cmd
     fi 
 done 
 
