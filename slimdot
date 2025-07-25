@@ -42,7 +42,6 @@ Configuration:
   Slimdot reads its configuration from a .slimdotrc file in the dotfiles directory.
   The following variables are supported:
     SLIMDOT_IGNORE     — list of files and/or directories to ignore
-    SLIMDOT_OVERRIDE   — overrides for symlink destinations
     SLIMDOT_RULES      — custom rules (name + list of dotfiles/actions)
     SLIMDOT_ACTIONS    — custom actions (name + shell command/function/script)
 
@@ -76,12 +75,6 @@ _destination_symlink_name() {
     elif [ -d "${DOTFILES_DIR}/${dotfile_source}" ]; then 
         symlink="${CONFIG_HOME_DIR}/${dotfile_source}"
     fi 
-
-    for override in "${OVERRIDE_LIST[@]}"; do 
-        if [[ $(echo "${override}" | _entry_name ) == "${dotfile_source}" ]]; then 
-            symlink="$(echo "${override}" | awk '{ $1=""; sub(/^ /, ""); print }')"
-        fi 
-    done 
 
     echo "$symlink"
 }
@@ -146,13 +139,39 @@ _clear() {
     for dotfile in "${DOTFILES_LIST[@]}"; do 
         symlink="$(_destination_symlink_name "${dotfile}")"
 
+        if stat --version >/dev/null 2>&1; then # GNU/Linux
+            mod_time() { stat -c '%Y' "$1"; }
+        else # BSD/macOS
+            mod_time() { stat -f '%m' "$1"; }
+        fi
+
+        local last_backup=
+        shopt -s nullglob
+        backups=( "${symlink}".backup* )
+        shopt -u nullglob
+        if (( ${#backups[@]} > 0 )); then
+                last_backup="$(
+                printf '%s\n' "${backups[@]}" \
+                | while IFS= read -r f; do
+                    printf '%s\t%s\n' "$(mod_time "$f")" "$f"
+                done | sort -n | tail -n 1 | cut -f2- )"
+        fi
+
         if [ -L "${symlink}" ] && [ "$(readlink "${symlink}")" == "${DOTFILES_DIR}/${dotfile}" ]; then 
             if [[ ! "${DRY_RUN}" ]]; then 
                 rm "${symlink}"
+
+                if [[ -n "${last_backup}" ]] && [[ -e "${last_backup}" ]]; then 
+                    mv "${last_backup}" "${symlink}"
+                fi 
             fi 
 
             if [[ "${VERBOSE_STDOUT}" || "${DRY_RUN}" ]]; then 
                 echo "Remove symlink ${symlink}"
+
+                if [[ -n "${last_backup}" ]] && [[ -e "${last_backup}" ]]; then 
+                    echo "Backup for ${symlink} restored"
+                fi
             fi 
         fi 
     done 
@@ -236,11 +255,18 @@ for dotfile in "${DOTFILES_DIR}"/{*,.*}; do
     DOTFILES_LIST+=("${dotfile_name}")
 done 
 
-readonly OVERRIDE_LIST=("${SLIMDOT_OVERRIDE[@]}")
-readonly SLIMDOT_DEFAULT_ACTIONS=("clear _clear")
-ACTIONS_LIST=("${SLIMDOT_DEFAULT_ACTIONS[@]}" "${SLIMDOT_ACTIONS[@]}")
-readonly SLIMDOT_DEFAULT_RULES=("all ${DOTFILES_LIST[*]} ${SLIMDOT_ACTIONS[*]}")
-RULES_LIST=("${SLIMDOT_DEFAULT_RULES[@]}" "${SLIMDOT_RULES[@]}")
+readonly SLIMDOT_DEFAULT_ACTIONS=(
+    "clear _clear"
+)
+ACTIONS_LIST=(
+    "${SLIMDOT_DEFAULT_ACTIONS[@]}" "${SLIMDOT_ACTIONS[@]}"
+)
+readonly SLIMDOT_DEFAULT_RULES=(
+    "all ${DOTFILES_LIST[*]} ${SLIMDOT_ACTIONS[*]}"
+)
+RULES_LIST=(
+    "${SLIMDOT_DEFAULT_RULES[@]}" "${SLIMDOT_RULES[@]}"
+)
 
 # Make lists of entries to symlink
 # --------------------------------
@@ -353,9 +379,8 @@ for action in "${ACTIONS_TO_EXECUTE[@]}"; do
     if [[ "${VERBOSE_STDOUT}" || "${DRY_RUN}" ]]; then 
         echo -e "Execute action \"${action_name}\": ${cmd}"
     fi 
-    if [[ ! "$DRY_RUN" || "${action_name}" == "clear" ]]; then 
+    if [[ ! "$DRY_RUN" || "${action_name}" == "clear" ]] && [[ -n "${cmd}" ]]; then 
         $cmd
     fi 
 done 
-
 
