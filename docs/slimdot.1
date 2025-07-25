@@ -1,0 +1,170 @@
+.TH SLIMDOT 1 "July 2025" "Version 0.1.0" "User Commands"
+.SH NAME
+slimdot \- minimal symlink manager for dotfiles
+.SH SYNOPSIS
+.B slimdot
+[\fIOPTIONS\fR] [\fIENTRIES...\fR]
+.SH DESCRIPTION
+\fBslimdot\fR is a minimal, dependency-free Bash script for managing symbolic links to dotfiles.
+It automatically links files from a dotfiles repository into the user's home directory (\fB$HOME\fR) and config directory (\fB$XDG_CONFIG_HOME\fR).
+
+.SH FEATURES
+.TP
+\fBZero dependencies\fR
+Uses only Bash and standard GNU coreutils (\fBgrep\fR, \fBawk\fR, \fBsed\fR)
+.TP
+\fBPortable\fR
+Can be run directly from GitHub via \fBcurl\fR
+.TP
+\fBOpinionated\fR
+Assumes a flat dotfiles repository structure
+
+.SH INSTALLATION
+.TP
+\fBRun without installing\fR:
+.RS
+.EX
+curl -sSL https://raw.githubusercontent.com/bchirva/slimdot/master/slimdot | bash -s [-- options]
+.EE
+.RE
+
+.TP
+\fBInstall locally with GNU Make\fR:
+.RS
+.EX
+sudo make install
+.EE
+.RE
+
+.SH USAGE
+.TP
+\fBDefault structure\fR:
+Files are linked into \fB$HOME\fR as \fI.${filename}\fR  
+Directories are linked into \fB$XDG_CONFIG_HOME/${dirname}\fR or \fB$HOME/.config/${dirname}\fR
+
+.TP
+\fBExample repo layout\fR:
+.EX
+.
+├── git/
+├── nvim/
+├── tmux/
+├── zprofile
+└── zsh/
+.EE
+
+.TP
+\fBRun\fR:
+.EX
+slimdot [OPTIONS] [ENTRIES...]
+.EE
+
+.TP
+If no entries are given, slimdot runs:
+.EX
+slimdot all
+.EE
+
+.SH OPTIONS
+.TP
+\fB\-d, \-\-dotfile-dir\fR DIR
+Set custom dotfiles directory (default: current working directory)
+.TP
+\fB\-n, \-\-dry-run\fR
+Preview actions without applying them
+.TP
+\fB\-v, \-\-verbose\fR
+Enable verbose output
+.TP
+\fB\-h, \-\-help\fR
+Show help message and exit
+.TP
+\fB\-\-version\fR
+Show script version
+
+.SH BUILT-IN ENTRIES
+.TP
+\fBall\fR
+Symlink all dotfiles and execute all actions (default)
+.TP
+\fBclear\fR
+Remove created symlinks from \fB$HOME\fR and \fB$XDG_CONFIG_HOME\fR, and restore backups if available
+
+.SH ENTRY TYPES
+.TP
+\fBDotfile\fR
+A file or directory in the repo. Files are linked to \fB$HOME\fR, directories to \fB$XDG_CONFIG_HOME\fR.
+.TP
+\fBRule\fR
+Named group of dotfiles and/or actions.
+.TP
+\fBAction\fR
+Named shell command or function run after symlinking.
+
+.TP
+\fBName resolution priority\fR:
+.RS
+Rule > Action > Dotfile
+.RE
+
+.SH CONFIGURATION
+.TP
+The script loads a \fB.slimdotrc\fR file from the dotfiles directory (if present).
+
+This file may define:
+.TP
+\fBSLIMDOT_IGNORE\fR
+Array of files/directories to skip
+.TP
+\fBSLIMDOT_RULES\fR
+Array of rules, each as a string with name + space-separated dotfiles/actions
+.TP
+\fBSLIMDOT_ACTIONS\fR
+Array of actions, each as a string with name + shell command or function
+
+.SH EXAMPLES
+
+.TP
+Structure of dotfile repository with zsh config:
+.EX
+.
+├── shells/
+│   ├── aliases.sh
+│   └── colors.sh
+├── zprofile
+└── zsh/
+    ├── .zshrc
+    └── plugins.zsh
+.EE
+
+.TP
+Define in .slimdotrc:
+.EX
+SLIMDOT_RULES=(
+  "zsh zsh zprofile shells install-zsh-pm"
+)
+
+SLIMDOT_ACTIONS=(
+  "install-zsh-pm curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh | bash -s"
+)
+.EE
+
+.TP
+Run with rule 'zsh' which links multiple dotfiles and runs an action:
+.EX
+slimdot zsh
+.EE
+
+.TP
+Clear all symlinks and restore backups:
+.EX
+slimdot clear
+.EE
+
+.SH LICENSE
+This program is free software; you can redistribute it and/or modify it  
+under the terms of the GNU General Public License v2 or later.  
+See https://www.gnu.org/licenses/.
+
+.SH AUTHOR
+Boris Chirva <https://github.com/bchirva>

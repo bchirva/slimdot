@@ -18,7 +18,7 @@
 You can run slimdot directly from GitHub without cloning or installing:
 
 ```bash
-curl -sSL "https://raw.githubusercontent.com/bchirva/slimdot/master/slimdot" | bash -s [-- options and entries]
+curl -sSL "https://raw.githubusercontent.com/bchirva/slimdot/master/slimdot" | bash -s 
 ```
 
 ### Local installation
