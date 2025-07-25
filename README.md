@@ -22,7 +22,7 @@ curl -sSL "https://raw.githubusercontent.com/bchirva/slimdot/master/slimdot" | b
 ```
 
 ### Local installation
-To install slimdot system-wide and enable man pages and tldr help (not ready yet, will be available soon):
+To install slimdot system-wide and enable man-page:
 
 ```bash
 sudo make install

@@ -232,7 +232,7 @@ readonly SLIMDOT_DEFAULT_IGNORE=(
     .gitmodules 
     .github 
     .gitlab
-    README 
+    README.md
     LICENSE 
     COPYING
     .slimdotrc
