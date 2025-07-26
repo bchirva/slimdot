@@ -56,7 +56,7 @@ Examples:
 EOF
 }
 
-readonly VERSION="0.1.0"
+readonly VERSION="0.1.1"
 
 _entry_name() {
     echo "$1" | sed -E 's/^[[:space:]]+//' | awk '{print $1}'
@@ -339,6 +339,10 @@ _list_unique actions
 
 # Create symlinks
 # ---------------
+if [ ! -d "${CONFIG_HOME_DIR}" ]; then 
+    mkdir -p "${CONFIG_HOME_DIR}"
+fi 
+
 for dotfile in "${DOTFILES_TO_SYMLINK[@]}"; do 
     symlink="$(_destination_symlink_name "${dotfile}")"
 
